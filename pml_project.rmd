@@ -1,0 +1,141 @@
+---
+title: "Practical Machine Learning Project"
+author: "AcD"
+date: "July 27, 2014"
+output: html_document
+---
+
+```{r results='hide', message=FALSE, warning=FALSE}
+require("randomForest")
+require("caret")
+```
+This paper is dcouments the ability to identify, based entirely on externally collected data the type of exercise performed.
+
+The data was collected and a set of training measurements, with the weight lifting activity identified, was provided.  In addition, a set of twenty test vectors, with just measurement data was provided. The goal was to train a model on the training set and use that model to predict the activity performed in each of the test cases.
+
+Before selecting a model preliminay analysis of the training was performed. First the training file was retreived and read into the "training_in" variable.  
+```{r, echo=FALSE}
+training_in<-read.csv("../pml-training.csv")
+```
+The data items (columns) that were either predominantly populated with not available (NA) or not populated at all (empty) were identified. This was done with the applicatons of apply and filtering shown below.
+```{r clean}
+col_NA <- apply(training_in, 2, function(x) (length(which(is.na(x))) > 19000))
+col_empty <- apply(training_in, 2, function(x) (length(which(x=="")) > 0))
+training<-training_in[, !col_NA & !col_empty]
+```
+When his was completed there were 40 columns of telemtry data, relating to four collection points: belt, arm, dumbell, and forearm. Each collection point had three different types of sensors, gyro, magent, and accelerometer. Each sensor collected three coordinates of spatial data the accelerometer collected an addition measurement of total acceleration. For each exercise a single set of 40 values was presented.
+```{r train,  echo=FALSE}
+training<-training[, grep("gyro|accel|magnet|classe", names(training))]
+training$classe<-as.factor(training$classe)
+```
+The remaining fields, other than the exercise tpye, labeled "classe" were not selected as they were not easily put into a factor form.  The "classe" field was recast as a factor.
+
+With 40 data points per exercise, random forests and principal component analysis were considered.  With the rsults attained with preliminary cross validation using random forests, that approach was selected.
+
+All processing was done using the "randomForests" package in R.
+
+A preliminary check on the number of variables was performed using rfcv (random forest for cross validation feature selection).
+```{r rfcv}
+result<- rfcv(trainx=training[,-41], trainy=training[,41], cv.fold=5)
+```
+```{r,echo=FALSE}
+with(result, plot(n.var, error.cv, log="x", type="0", lwd=2))
+```
+The results lead us to use random forests with all 40 candidate sensors.  To find the best value of mtry, the number of predictors sampled at each splitting node, the tuneRF function was used.
+```{r}
+tuneRF(x=hwusemod[,-41], y=hwusemod[,41], mtrystart=3,, ntreeTry =50, improve = 0.05)
+```
+This lead to using mtry value of 12.
+```{r}
+For cross validation, k=5 Cross validation was used.  The "caret" package function "createFolds" was used.  This enerated 5 sets of row indices to use as cross validation tests sets.  The sets were identified as inTrain1, ..., inTrain5, with each one excluding one fifth of the toal training package as a test set.
+
+A random forest model was fit against each trainging set. Then cross validated against the test set. The percentage wrong for  each cross validation set was calculated.
+
+'''{r, echo=false}
+ntrees<-1000
+
+set.seed(1984)
+k<-5
+crtreeFold<-createFolds(y=hwusemod[,41], list=FALSE, k=5)
+
+i<-1
+inTraini<-hwusemod[crtreeFold!=i,]
+fiti <-randomForest(x=inTraini[,-41], y = inTraini[,41], mtry =12, ntree=ntrees, importance=TRUE)
+
+fit1<-fiti
+inTrain1<-inTraini
+inTest1<-hwusemod[crtreeFold==i,]
+i<-2
+inTraini<-hwusemod[crtreeFold!=i,]
+fiti <-randomForest(x=inTraini[,-41], y = inTraini[,41], mtry =12, ntree=ntrees, importance=TRUE)
+
+fit2<-fiti
+inTrain2<-inTraini
+inTest2<-hwusemod[crtreeFold==i,]
+i<-3
+inTraini<-hwusemod[crtreeFold!=i,]
+fit3 <-randomForest(x=inTraini[,-41], y = inTraini[,41], mtry =12, ntree=ntrees, importance=TRUE)
+
+fit3<-fiti
+inTrain3<-inTraini
+inTest3<-hwusemod[crtreeFold==i,]
+
+i<-4
+inTraini<-hwusemod[crtreeFold!=i,]
+fiti <-randomForest(x=inTraini[,-41], y = inTraini[,41], mtry =12, ntree=ntrees, importance=TRUE)
+
+fit4<-fiti
+inTrain4<-inTraini
+inTest4<-hwusemod[crtreeFold==i,]
+
+
+i<-5
+inTraini<-hwusemod[crtreeFold!=i,]
+fiti <-randomForest(x=inTraini[,-41], y = inTraini[,41], mtry =12, ntree=ntrees, importance=TRUE)
+
+fit5<-fiti
+inTrain5<-inTraini
+inTest5<-hwusemod[crtreeFold==i,]
+```
+
+```{r}
+score<-rep(NA,k)
+pred1<-predict(fit1, newdata=inTest1[,-41])
+score[1]<-sum(pred1==inTest1[,41])/length(pred1)
+
+pred2<-predict(fit2, newdata=inTest2[,-41])
+score[2]<-sum(pred2==inTest2[,41])/length(pred2)
+
+pred3<-predict(fit3, newdata=inTest3[,-41])
+score[3]<-sum(pred3==inTest3[,41])/length(pred3)
+
+pred4<-predict(fit4, newdata=inTest4[,-41])
+score[4]<-sum(pred4==inTest4[,41])/length(pred4)
+
+pred5<-predict(fit5, newdata=inTest5[,-41])
+score[5]<-sum(pred5==inTest5[,41])/length(pred5)
+```
+A quick plot of the score shows that we are on the right track.
+```{r, echo=FALSE}
+plot(score)
+```
+A sample fitted model shows an error rate against training og 1.12%. The error rate for that model in cross validation was 1.04%. The mean validation percentage was .94%.
+
+```{r,include=FALSE}
+Call:
+ randomForest(x = inTrain1[, -41], y = inTrain1[, 41], ntree = ntrees,      mtry = 12, importance = TRUE) 
+               Type of random forest: classification
+                     Number of trees: 1000
+No. of variables tried at each split: 12
+
+        OOB estimate of  error rate: 1.12%
+Confusion matrix:
+     A    B    C    D    E class.error
+A 4450    5    4    4    1 0.003136201
+B   28 2984   22    1    3 0.017774852
+C    3   27 2706    1    1 0.011687363
+D    4    1   58 2505    5 0.026428294
+E    0    1    2    5 2877 0.002772964
+```
+
+Finally, the forests for models one through four were combined into a single forest and that model run against the test set.  The model was able to predict the test set with 100% accuracy.
